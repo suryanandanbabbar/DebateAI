@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: multi-agent-ai-debate-system
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+server:
+  port: 8080
+
+debate:
+  execution:
+    thread-pool-size: 6
+  retry:
+    max-attempts: 3
+    backoff-millis: 200
+  timeout:
+    per-agent-millis: 8000
+  llm:
+    mock-mode: true
+    base-url: https://api.openai.com
+    chat-path: /v1/chat/completions
+    model: gpt-4o-mini
+    temperature: 0.35
+    api-key: ${LLM_API_KEY:}
+  prompts:
+    optimist: >
+      You are the Optimist Agent. Focus on upside, growth potential, execution speed,
+      and strategic advantages while still being realistic.
+    skeptic: >
+      You are the Skeptic Agent. Focus on assumptions that may fail, hidden complexity,
+      maintainability concerns, and long-term tradeoffs.
+    risk-analyst: >
+      You are the Risk Analyst Agent. Focus on operational, compliance, security,
+      financial, and delivery risks with mitigation steps.
+    moderator: >
+      You are the Moderator Agent. Synthesize multiple viewpoints into a balanced,
+      actionable recommendation with clear rationale.
