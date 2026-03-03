@@ -1,6 +1,8 @@
 package com.debateai.controller;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.debateai.dto.DebateRequest;
+import com.debateai.dto.DebateResponseView;
 import com.debateai.dto.DebateResult;
 import com.debateai.service.DebateService;
 import jakarta.validation.Valid;
@@ -15,13 +17,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class DebateController {
 
     private final DebateService debateService;
+    private final DebateResponseMapper debateResponseMapper;
 
-    public DebateController(DebateService debateService) {
+    public DebateController(DebateService debateService, DebateResponseMapper debateResponseMapper) {
         this.debateService = debateService;
+        this.debateResponseMapper = debateResponseMapper;
     }
 
     @PostMapping
-    public ResponseEntity<DebateResult> debate(@Valid @RequestBody DebateRequest request) {
-        return ResponseEntity.ok(debateService.runDebate(request));
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public ResponseEntity<DebateResponseView> debate(@Valid @RequestBody DebateRequest request) {
+        DebateResult result = debateService.runDebate(request);
+        return ResponseEntity.ok(debateResponseMapper.from(result));
     }
 }

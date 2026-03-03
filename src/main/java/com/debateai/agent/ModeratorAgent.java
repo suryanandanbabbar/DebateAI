@@ -118,7 +118,7 @@ public class ModeratorAgent implements DebateAgent {
         log.info("{} completed synthesis in {} ms with average semantic similarity {}",
                 agentName(), durationMs, String.format(Locale.US, "%.4f", averageSimilarity));
 
-        return new DebateResult(optimistView, skepticView, riskView, finalDecision, confidenceScore);
+        return new DebateResult(topic, optimistView, skepticView, riskView, finalDecision, confidenceScore);
     }
 
     private String viewOrFallback(AgentResponse response, String fallback) {
