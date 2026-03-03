@@ -15,12 +15,12 @@ debate:
   execution:
     thread-pool-size: 6
   retry:
-    max-attempts: 1
+    max-attempts: 2
     backoff-millis: 200
   timeout:
-    per-agent-millis: 10000
+    per-agent-millis: 25000
   llm:
-    timeout-millis: 8000
+    timeout-millis: 20000
     max-attempts: 2
     providers:
       openai:

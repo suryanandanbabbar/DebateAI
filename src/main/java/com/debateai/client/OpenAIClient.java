@@ -26,14 +26,15 @@ public class OpenAIClient implements LLMClient {
     private final String openAiApiKey;
 
     public OpenAIClient(WebClient.Builder webClientBuilder,
-                        AppConfig.DebateProperties properties,
-                        @Value("${OPENAI_API_KEY:}") String openAiApiKey) {
+            AppConfig.DebateProperties properties,
+            @Value("${OPENAI_API_KEY:}") String openAiApiKey) {
         this.provider = properties.llm().providers().openai();
         this.webClient = webClientBuilder.build();
         this.openAiApiKey = openAiApiKey;
         log.info("OpenAI API key present={} length={}",
                 StringUtils.hasText(this.openAiApiKey),
                 this.openAiApiKey == null ? 0 : this.openAiApiKey.length());
+        log.info("OpenAI baseUrl={}", provider.baseUrl());
     }
 
     @Override
@@ -52,20 +53,31 @@ public class OpenAIClient implements LLMClient {
                 "temperature", request.temperature(),
                 "messages", List.of(
                         Map.of("role", "system", "content", request.systemPrompt()),
-                        Map.of("role", "user", "content", request.userPrompt())
-                )
-        );
+                        Map.of("role", "user", "content", request.userPrompt())));
 
         LLMGenerationResponse response = webClient.post()
                 .uri(provider.baseUrl())
                 .headers(headers -> applyCommonHeaders(headers))
                 .bodyValue(payload)
+                // .retrieve()
+                // .bodyToMono(Map.class)
+                // .timeout(Duration.ofMillis(request.timeoutMillis()))
+                // .retryWhen(retrySpec(request.maxAttempts()))
+                // .map(this::parseResponse)
+                // .onErrorMap(ex -> new IllegalStateException("OpenAI invocation failed", ex))
+                // .block();
                 .retrieve()
+                .onStatus(
+                        status -> status.isError(),
+                        clientResponse -> clientResponse.bodyToMono(String.class)
+                                .map(body -> {
+                                    log.error("OpenAI HTTP error: {}", body);
+                                    return new IllegalStateException("OpenAI error: " + body);
+                                }))
                 .bodyToMono(Map.class)
                 .timeout(Duration.ofMillis(request.timeoutMillis()))
                 .retryWhen(retrySpec(request.maxAttempts()))
                 .map(this::parseResponse)
-                .onErrorMap(ex -> new IllegalStateException("OpenAI invocation failed", ex))
                 .block();
         if (response == null) {
             throw new IllegalStateException("OpenAI invocation returned no response");
