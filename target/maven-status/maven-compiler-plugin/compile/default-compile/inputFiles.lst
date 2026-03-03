@@ -12,6 +12,8 @@
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMGenerationRequest.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMGenerationResponse.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/OpenAIClient.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/ProviderDetector.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/ProviderSwitcher.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/config/AppConfig.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/controller/DebateController.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/controller/DebateResponseMapper.java

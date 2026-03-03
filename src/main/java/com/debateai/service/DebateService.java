@@ -4,6 +4,7 @@ import com.debateai.agent.DebateAgent;
 import com.debateai.client.LLMClient;
 import com.debateai.client.LLMClientFactory;
 import com.debateai.client.LLMExecutionConfig;
+import com.debateai.client.ProviderSwitcher;
 import com.debateai.config.AppConfig;
 import com.debateai.dto.AgentResponse;
 import com.debateai.dto.DebateRequest;
@@ -29,14 +30,17 @@ public class DebateService {
     private final DebateAgent moderatorAgent;
     private final Executor debateExecutor;
     private final LLMClientFactory llmClientFactory;
+    private final ProviderSwitcher providerSwitcher;
     private final AppConfig.DebateProperties properties;
 
     public DebateService(List<DebateAgent> availableAgents,
                          @Qualifier("debateExecutor") Executor debateExecutor,
                          LLMClientFactory llmClientFactory,
+                         ProviderSwitcher providerSwitcher,
                          AppConfig.DebateProperties properties) {
         this.debateExecutor = debateExecutor;
         this.llmClientFactory = llmClientFactory;
+        this.providerSwitcher = providerSwitcher;
         this.properties = properties;
         this.moderatorAgent = availableAgents.stream()
                 .filter(DebateAgent::isModerator)
@@ -82,14 +86,26 @@ public class DebateService {
 
     private AgentResponse executeWithRetry(DebateAgent agent, String topic, ResolvedClientConfig resolved) {
         int maxAttempts = properties.retry().maxAttempts();
+        boolean switchedOnce = false;
+        ResolvedClientConfig active = resolved;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 log.info("Dispatching {} using provider={} model={} temperature={}",
-                        agent.agentName(), resolved.provider(), resolved.executionConfig().model(),
-                        String.format(Locale.US, "%.2f", resolved.executionConfig().temperature()));
-                return agent.generate(topic, resolved.client(), resolved.executionConfig());
+                        agent.agentName(), active.provider(), active.executionConfig().model(),
+                        String.format(Locale.US, "%.2f", active.executionConfig().temperature()));
+                return agent.generate(topic, active.client(), active.executionConfig());
             } catch (RuntimeException ex) {
+                if (!switchedOnce && providerSwitcher.isApiKeyMismatchError(ex)) {
+                    String fallbackProvider = providerSwitcher.findAlternativeProvider(active.provider());
+                    if (!fallbackProvider.equals(active.provider()) && llmClientFactory.supports(fallbackProvider)) {
+                        log.warn("Provider {} failed due to API key mismatch; switching to {} and retrying once.",
+                                active.provider(), fallbackProvider);
+                        active = buildClientConfig(fallbackProvider, active.executionConfig().temperature());
+                        switchedOnce = true;
+                        return agent.generate(topic, active.client(), active.executionConfig());
+                    }
+                }
                 if (attempt >= maxAttempts) {
                     throw ex;
                 }
@@ -112,16 +128,21 @@ public class DebateService {
             default -> throw new IllegalArgumentException("No LLM config for viewpoint: " + viewpoint);
         };
 
-        String provider = properties.llm().provider().trim().toLowerCase(Locale.ROOT);
+        String configuredProvider = properties.llm().provider().trim().toLowerCase(Locale.ROOT);
+        String provider = providerSwitcher.resolveProviderByKeyFormat(configuredProvider);
+        return buildClientConfig(provider, agentConfig.temperature());
+    }
+
+    private ResolvedClientConfig buildClientConfig(String provider, double temperature) {
         LLMClient client = llmClientFactory.getClient(provider);
         String model = resolveModel(provider);
-        long timeoutMillis = provider.equals("gemini")
+        long timeoutMillis = "gemini".equals(provider)
                 ? TimeUnit.SECONDS.toMillis(properties.llm().gemini().timeoutSeconds())
                 : properties.llm().timeoutMillis();
 
         LLMExecutionConfig executionConfig = new LLMExecutionConfig(
                 model,
-                agentConfig.temperature(),
+                temperature,
                 timeoutMillis,
                 properties.llm().maxAttempts()
         );

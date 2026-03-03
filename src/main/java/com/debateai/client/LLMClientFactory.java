@@ -27,6 +27,11 @@ public class LLMClientFactory {
         return client;
     }
 
+    public boolean supports(String providerName) {
+        String normalized = normalize(providerName);
+        return clientsByProvider.containsKey(normalized);
+    }
+
     private String normalize(String value) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException("provider name must not be blank");
