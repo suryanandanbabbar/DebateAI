@@ -4,7 +4,6 @@ com/debateai/exception/GlobalExceptionHandler.class
 com/debateai/exception/GlobalExceptionHandler$ErrorResponse.class
 com/debateai/config/AppConfig$DebateProperties$Execution.class
 com/debateai/config/AppConfig$DebateProperties$Retry.class
-com/debateai/config/AppConfig$DebateProperties$Prompts.class
 com/debateai/dto/DebateRequest.class
 com/debateai/config/AppConfig$DebateProperties.class
 com/debateai/config/AppConfig.class

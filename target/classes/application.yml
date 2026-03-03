@@ -15,27 +15,32 @@ debate:
   execution:
     thread-pool-size: 6
   retry:
-    max-attempts: 3
+    max-attempts: 1
     backoff-millis: 200
   timeout:
-    per-agent-millis: 8000
+    per-agent-millis: 10000
   llm:
-    mock-mode: true
-    base-url: https://api.openai.com
-    chat-path: /v1/chat/completions
-    model: gpt-4o-mini
-    temperature: 0.35
-    api-key: ${LLM_API_KEY:}
-  prompts:
-    optimist: >
-      You are the Optimist Agent. Focus on upside, growth potential, execution speed,
-      and strategic advantages while still being realistic.
-    skeptic: >
-      You are the Skeptic Agent. Focus on assumptions that may fail, hidden complexity,
-      maintainability concerns, and long-term tradeoffs.
-    risk-analyst: >
-      You are the Risk Analyst Agent. Focus on operational, compliance, security,
-      financial, and delivery risks with mitigation steps.
-    moderator: >
-      You are the Moderator Agent. Synthesize multiple viewpoints into a balanced,
-      actionable recommendation with clear rationale.
+    timeout-millis: 8000
+    max-attempts: 2
+    providers:
+      openai:
+        api-key: ${OPENAI_API_KEY:}
+        base-url: https://api.openai.com/v1/chat/completions
+        model: gpt-4o-mini
+      anthropic:
+        api-key: ${ANTHROPIC_API_KEY:}
+        base-url: https://api.anthropic.com/v1/messages
+        model: claude-3-haiku-20240307
+    agents:
+      optimist:
+        provider: openai
+        temperature: 0.8
+      skeptic:
+        provider: anthropic
+        temperature: 0.3
+      risk:
+        provider: openai
+        temperature: 0.2
+      moderator:
+        provider: anthropic
+        temperature: 0.4

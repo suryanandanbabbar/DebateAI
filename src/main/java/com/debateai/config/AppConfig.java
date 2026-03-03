@@ -15,9 +15,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
 @EnableConfigurationProperties(AppConfig.DebateProperties.class)
@@ -37,12 +36,8 @@ public class AppConfig {
     }
 
     @Bean
-    public RestClient llmRestClient(DebateProperties properties) {
-        RestClient.Builder builder = RestClient.builder();
-        if (StringUtils.hasText(properties.llm().baseUrl())) {
-            builder.baseUrl(properties.llm().baseUrl());
-        }
-        return builder.build();
+    public WebClient.Builder webClientBuilder() {
+        return WebClient.builder();
     }
 
     @Validated
@@ -51,8 +46,7 @@ public class AppConfig {
             @Valid @NotNull Execution execution,
             @Valid @NotNull Retry retry,
             @Valid @NotNull Timeout timeout,
-            @Valid @NotNull Llm llm,
-            @Valid @NotNull Prompts prompts
+            @Valid @NotNull Llm llm
     ) {
 
         public record Execution(
@@ -72,21 +66,37 @@ public class AppConfig {
         }
 
         public record Llm(
-                boolean mockMode,
-                String baseUrl,
-                @NotBlank String chatPath,
-                @NotBlank String model,
-                @DecimalMin("0.0") @DecimalMax("1.0") double temperature,
-                String apiKey
+                @Min(1000) @Max(30000) long timeoutMillis,
+                @Min(1) @Max(5) int maxAttempts,
+                @Valid @NotNull Providers providers,
+                @Valid @NotNull Agents agents
         ) {
-        }
+            public record Providers(
+                    @Valid @NotNull Provider openai,
+                    @Valid @NotNull Provider anthropic
+            ) {
+            }
 
-        public record Prompts(
-                @NotBlank String optimist,
-                @NotBlank String skeptic,
-                @NotBlank String riskAnalyst,
-                @NotBlank String moderator
-        ) {
+            public record Provider(
+                    String apiKey,
+                    @NotBlank String baseUrl,
+                    @NotBlank String model
+            ) {
+            }
+
+            public record Agents(
+                    @Valid @NotNull AgentConfig optimist,
+                    @Valid @NotNull AgentConfig skeptic,
+                    @Valid @NotNull AgentConfig risk,
+                    @Valid @NotNull AgentConfig moderator
+            ) {
+            }
+
+            public record AgentConfig(
+                    @NotBlank String provider,
+                    @DecimalMin("0.0") @DecimalMax("1.0") double temperature
+            ) {
+            }
         }
     }
 }

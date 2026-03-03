@@ -4,7 +4,13 @@
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/agent/OptimistAgent.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/agent/RiskAnalystAgent.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/agent/SkepticAgent.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/AnthropicClient.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMClient.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMClientFactory.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMExecutionConfig.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMGenerationRequest.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMGenerationResponse.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/OpenAIClient.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/config/AppConfig.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/controller/DebateController.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/dto/AgentResponse.java

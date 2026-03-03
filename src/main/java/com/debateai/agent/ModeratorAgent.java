@@ -1,7 +1,9 @@
 package com.debateai.agent;
 
 import com.debateai.client.LLMClient;
-import com.debateai.config.AppConfig;
+import com.debateai.client.LLMExecutionConfig;
+import com.debateai.client.LLMGenerationRequest;
+import com.debateai.client.LLMGenerationResponse;
 import com.debateai.dto.AgentResponse;
 import com.debateai.dto.DebateResult;
 import com.debateai.service.TextSimilarityService;
@@ -29,16 +31,10 @@ public class ModeratorAgent implements DebateAgent {
     private static final String SKEPTIC_LABEL = "Skeptic Agent";
     private static final String RISK_LABEL = "Risk Analyst Agent";
 
-    private final LLMClient llmClient;
     private final TextSimilarityService textSimilarityService;
-    private final String moderatorPrompt;
 
-    public ModeratorAgent(LLMClient llmClient,
-                          TextSimilarityService textSimilarityService,
-                          AppConfig.DebateProperties properties) {
-        this.llmClient = llmClient;
+    public ModeratorAgent(TextSimilarityService textSimilarityService) {
         this.textSimilarityService = textSimilarityService;
-        this.moderatorPrompt = properties.prompts().moderator();
     }
 
     @Override
@@ -57,14 +53,17 @@ public class ModeratorAgent implements DebateAgent {
     }
 
     @Override
-    public AgentResponse generate(String topic) {
+    public AgentResponse generate(String topic, LLMClient llmClient, LLMExecutionConfig config) {
         return new AgentResponse(agentName(), viewpoint(),
                 "Moderator consolidates other agent outputs and is not called directly.",
                 0L, true, false, null);
     }
 
     @Override
-    public DebateResult moderate(String topic, List<AgentResponse> responses) {
+    public DebateResult moderate(String topic,
+                                 List<AgentResponse> responses,
+                                 LLMClient llmClient,
+                                 LLMExecutionConfig config) {
         long start = System.nanoTime();
 
         Map<String, AgentResponse> byViewpoint = responses.stream()
@@ -107,9 +106,9 @@ public class ModeratorAgent implements DebateAgent {
 
         List<String> agreements = detectAgreements(responses);
         List<String> conflicts = detectConflicts(responses, similarityAnalysis);
-
         String riskSummary = summarizeRisk(riskView);
-        String recommendation = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, averageSimilarity);
+
+        String recommendation = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, llmClient, config);
         String finalDecision = "Key agreements: " + String.join(", ", agreements)
                 + "\nMajor conflicts: " + String.join(", ", conflicts)
                 + "\nRisk summary: " + riskSummary
@@ -154,7 +153,7 @@ public class ModeratorAgent implements DebateAgent {
                 .toList();
 
         if (agreements.isEmpty()) {
-            return List.of("need for phased delivery", "need for stronger observability");
+            return List.of("need for stronger evidence", "need for practical rollout controls");
         }
         return agreements;
     }
@@ -166,7 +165,7 @@ public class ModeratorAgent implements DebateAgent {
         for (TextSimilarityService.PairwiseSimilarity pairwise : similarityAnalysis.pairwiseSimilarities()) {
             if (pairwise.similarity() < 0.35d) {
                 conflicts.add(pairwise.leftLabel() + " and " + pairwise.rightLabel()
-                        + " diverge on complexity versus speed of adoption");
+                        + " diverge on expected value versus downside exposure");
             }
         }
 
@@ -176,7 +175,7 @@ public class ModeratorAgent implements DebateAgent {
                         + (response.timedOut() ? "timeout" : "processing failure")));
 
         if (conflicts.isEmpty()) {
-            conflicts.add("degree of architectural decomposition in early stages");
+            conflicts.add("weighting of upside speed versus control depth");
         }
 
         return conflicts.stream().limit(4).toList();
@@ -198,24 +197,36 @@ public class ModeratorAgent implements DebateAgent {
                                        List<String> conflicts,
                                        String riskSummary,
                                        List<AgentResponse> responses,
-                                       double averageSimilarity) {
-        String synthesisPrompt = moderatorPrompt
-                + "\nTopic: " + topic
-                + "\nAgreements: " + String.join(", ", agreements)
-                + "\nConflicts: " + String.join(", ", conflicts)
+                                       LLMClient llmClient,
+                                       LLMExecutionConfig config) {
+        String userPrompt = "Topic: " + topic
+                + "\n\nAgent outputs:\n" + responses.stream()
+                .map(response -> "- " + response.agentName() + ": " + response.content())
+                .collect(Collectors.joining("\n"))
+                + "\n\nAgreements: " + String.join("; ", agreements)
+                + "\nConflicts: " + String.join("; ", conflicts)
                 + "\nRisk summary: " + riskSummary
-                + "\nAverage semantic similarity: " + String.format(Locale.US, "%.4f", averageSimilarity)
-                + "\nAgent outputs: " + responses.stream()
-                .map(response -> response.agentName() + ": " + response.content())
-                .collect(Collectors.joining("\n"));
+                + "\n\nProduce a balanced recommendation in 4-6 sentences.";
+
+        String systemPrompt = "You are the Moderator Agent in a structured AI debate. "
+                + "Synthesize multiple viewpoints into one balanced, concrete recommendation.";
+
+        LLMGenerationRequest request = new LLMGenerationRequest(
+                config.model(),
+                config.temperature(),
+                systemPrompt,
+                userPrompt,
+                config.timeoutMillis(),
+                config.maxAttempts()
+        );
 
         try {
-            return llmClient.generate(agentName(), synthesisPrompt, topic);
+            LLMGenerationResponse response = llmClient.generate(request);
+            return response.content();
         } catch (RuntimeException ex) {
-            log.warn("Moderator LLM synthesis failed. Falling back to deterministic recommendation.", ex);
-            return "Adopt a phased architecture strategy: begin with a modular monolith, define domain boundaries early, "
-                    + "and extract high-volatility or scaling-critical domains into microservices only when operational maturity, "
-                    + "security controls, and observability standards are proven.";
+            log.warn("Moderator synthesis failed. Falling back to deterministic summary.", ex);
+            return "Prioritize a staged decision with explicit criteria, compare outcomes with measurable evidence, "
+                    + "and select the option that maintains quality while controlling operational risk.";
         }
     }
 

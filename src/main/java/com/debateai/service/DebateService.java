@@ -1,11 +1,15 @@
 package com.debateai.service;
 
 import com.debateai.agent.DebateAgent;
+import com.debateai.client.LLMClient;
+import com.debateai.client.LLMClientFactory;
+import com.debateai.client.LLMExecutionConfig;
 import com.debateai.config.AppConfig;
 import com.debateai.dto.AgentResponse;
 import com.debateai.dto.DebateRequest;
 import com.debateai.dto.DebateResult;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -24,12 +28,15 @@ public class DebateService {
     private final List<DebateAgent> debateAgents;
     private final DebateAgent moderatorAgent;
     private final Executor debateExecutor;
+    private final LLMClientFactory llmClientFactory;
     private final AppConfig.DebateProperties properties;
 
     public DebateService(List<DebateAgent> availableAgents,
                          @Qualifier("debateExecutor") Executor debateExecutor,
+                         LLMClientFactory llmClientFactory,
                          AppConfig.DebateProperties properties) {
         this.debateExecutor = debateExecutor;
+        this.llmClientFactory = llmClientFactory;
         this.properties = properties;
         this.moderatorAgent = availableAgents.stream()
                 .filter(DebateAgent::isModerator)
@@ -60,23 +67,28 @@ public class DebateService {
                 .map(CompletableFuture::join)
                 .toList();
 
-        DebateResult result = moderatorAgent.moderate(topic, responses);
+        ResolvedClientConfig moderatorConfig = resolveClientConfig("moderator");
+        DebateResult result = moderatorAgent.moderate(topic, responses, moderatorConfig.client(), moderatorConfig.executionConfig());
         log.info("Debate completed with confidence score {}", result.confidenceScore());
         return result;
     }
 
     private CompletableFuture<AgentResponse> executeAgent(DebateAgent agent, String topic) {
-        return CompletableFuture.supplyAsync(() -> executeWithRetry(agent, topic), debateExecutor)
+        ResolvedClientConfig resolved = resolveClientConfig(agent.viewpoint());
+        return CompletableFuture.supplyAsync(() -> executeWithRetry(agent, topic, resolved), debateExecutor)
                 .completeOnTimeout(timeoutResponse(agent), properties.timeout().perAgentMillis(), TimeUnit.MILLISECONDS)
                 .exceptionally(throwable -> failedResponse(agent, unwrap(throwable)));
     }
 
-    private AgentResponse executeWithRetry(DebateAgent agent, String topic) {
+    private AgentResponse executeWithRetry(DebateAgent agent, String topic, ResolvedClientConfig resolved) {
         int maxAttempts = properties.retry().maxAttempts();
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                return agent.generate(topic);
+                log.info("Dispatching {} using provider={} model={} temperature={}",
+                        agent.agentName(), resolved.provider(), resolved.executionConfig().model(),
+                        String.format(Locale.US, "%.2f", resolved.executionConfig().temperature()));
+                return agent.generate(topic, resolved.client(), resolved.executionConfig());
             } catch (RuntimeException ex) {
                 if (attempt >= maxAttempts) {
                     throw ex;
@@ -89,6 +101,37 @@ public class DebateService {
         }
 
         throw new IllegalStateException("Unexpected retry state for " + agent.agentName());
+    }
+
+    private ResolvedClientConfig resolveClientConfig(String viewpoint) {
+        AppConfig.DebateProperties.Llm.AgentConfig agentConfig = switch (viewpoint.toLowerCase(Locale.ROOT)) {
+            case "optimist" -> properties.llm().agents().optimist();
+            case "skeptic" -> properties.llm().agents().skeptic();
+            case "risk", "risk-analyst" -> properties.llm().agents().risk();
+            case "moderator" -> properties.llm().agents().moderator();
+            default -> throw new IllegalArgumentException("No LLM config for viewpoint: " + viewpoint);
+        };
+
+        String provider = agentConfig.provider().trim().toLowerCase(Locale.ROOT);
+        LLMClient client = llmClientFactory.getClient(provider);
+        String model = resolveModel(provider);
+
+        LLMExecutionConfig executionConfig = new LLMExecutionConfig(
+                model,
+                agentConfig.temperature(),
+                properties.llm().timeoutMillis(),
+                properties.llm().maxAttempts()
+        );
+
+        return new ResolvedClientConfig(provider, client, executionConfig);
+    }
+
+    private String resolveModel(String provider) {
+        return switch (provider) {
+            case "openai" -> properties.llm().providers().openai().model();
+            case "anthropic" -> properties.llm().providers().anthropic().model();
+            default -> throw new IllegalArgumentException("Unsupported provider for model resolution: " + provider);
+        };
     }
 
     private AgentResponse timeoutResponse(DebateAgent agent) {
@@ -134,5 +177,12 @@ public class DebateService {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Retry backoff interrupted", ex);
         }
+    }
+
+    private record ResolvedClientConfig(
+            String provider,
+            LLMClient client,
+            LLMExecutionConfig executionConfig
+    ) {
     }
 }
