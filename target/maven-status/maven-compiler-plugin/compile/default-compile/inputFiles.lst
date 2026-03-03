@@ -5,6 +5,7 @@
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/agent/RiskAnalystAgent.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/agent/SkepticAgent.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/AnthropicClient.java
+/Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/GeminiClient.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMClient.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMClientFactory.java
 /Users/surya/Documents/Projects/DebateAI/src/main/java/com/debateai/client/LLMExecutionConfig.java

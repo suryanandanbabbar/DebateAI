@@ -1,5 +1,6 @@
 package com.debateai.client;
 
+import com.debateai.config.AppConfig;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -7,11 +8,13 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 @Component
@@ -20,23 +23,15 @@ public class GeminiClient implements LLMClient {
     private static final Logger log = LoggerFactory.getLogger(GeminiClient.class);
 
     private final WebClient webClient;
-    private final String configuredModel;
+    private final AppConfig.DebateProperties.Llm.Gemini geminiConfig;
     private final String geminiApiKey;
-    private final long providerTimeoutMillis;
 
     public GeminiClient(WebClient.Builder webClientBuilder,
-                        @Value("${debate.llm.providers.gemini.base-url:https://generativelanguage.googleapis.com/v1beta}")
-                        String baseUrl,
-                        @Value("${debate.llm.providers.gemini.model:gemini-2.5-flash}") String configuredModel,
-                        @Value("${debate.llm.providers.gemini.timeout-millis:0}") long providerTimeoutMillis,
+                        AppConfig.DebateProperties properties,
                         @Value("${GEMINI_API_KEY:${GOOGLE_API_KEY:}}") String geminiApiKey) {
-        this.webClient = webClientBuilder.baseUrl(baseUrl).build();
-        this.configuredModel = configuredModel;
-        this.providerTimeoutMillis = providerTimeoutMillis;
+        this.geminiConfig = properties.llm().gemini();
+        this.webClient = webClientBuilder.baseUrl(geminiConfig.baseUrl()).build();
         this.geminiApiKey = geminiApiKey;
-        log.info("Gemini API key present={} length={}",
-                StringUtils.hasText(this.geminiApiKey),
-                this.geminiApiKey == null ? 0 : this.geminiApiKey.length());
     }
 
     @Override
@@ -48,55 +43,72 @@ public class GeminiClient implements LLMClient {
     public LLMGenerationResponse generate(LLMGenerationRequest request) {
         validateApiKey();
 
-        String model = StringUtils.hasText(request.model()) ? request.model() : configuredModel;
-        long timeoutMillis = resolveTimeoutMillis(request.timeoutMillis());
         long start = System.nanoTime();
 
-        Map<String, Object> body = toGeminiRequestBody(request);
+        Map<String, Object> requestBody = toGeminiRequestBody(request);
 
         LLMGenerationResponse response = webClient.post()
                 .uri(uriBuilder -> uriBuilder
                         .path("/models/{model}:generateContent")
                         .queryParam("key", geminiApiKey)
-                        .build(model))
+                        .build(request.model()))
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
+                .bodyValue(requestBody)
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, this::mapGeminiError)
                 .bodyToMono(Map.class)
-                .timeout(Duration.ofMillis(timeoutMillis))
+                .timeout(Duration.ofMillis(request.timeoutMillis()))
                 .retryWhen(retrySpec(request.maxAttempts()))
                 .map(this::extractResponse)
-                .onErrorMap(ex -> new IllegalStateException("Gemini invocation failed", ex))
+                .onErrorMap(WebClientResponseException.class,
+                        ex -> new RuntimeException("Gemini request failed with status " + ex.getStatusCode().value()))
+                .onErrorMap(ex -> ex instanceof RuntimeException ? ex : new RuntimeException("Gemini request failed"))
                 .block();
 
         if (response == null) {
-            throw new IllegalStateException("Gemini invocation returned no response");
+            throw new RuntimeException("Gemini request failed: empty response");
         }
 
         long durationMs = (System.nanoTime() - start) / 1_000_000;
         log.info("LLM call completed provider={} model={} durationMs={} usageTokens={}/{}/{}",
-                provider(), model, durationMs,
+                provider(), request.model(), durationMs,
                 response.inputTokens(), response.outputTokens(), response.totalTokens());
         return response;
     }
 
-    private Map<String, Object> toGeminiRequestBody(LLMGenerationRequest request) {
-        String mergedPrompt = "System Role:\n" + request.systemPrompt()
-                + "\n\nUser:\n" + request.userPrompt();
+    private Mono<RuntimeException> mapGeminiError(org.springframework.web.reactive.function.client.ClientResponse response) {
+        int status = response.statusCode().value();
+        return response.bodyToMono(String.class)
+                .defaultIfEmpty("")
+                .map(ignored -> new RuntimeException("Gemini API returned an error (status=" + status + ")"));
+    }
 
+    private Map<String, Object> toGeminiRequestBody(LLMGenerationRequest request) {
+        String prompt = mergePrompt(request.systemPrompt(), request.userPrompt());
         return Map.of(
                 "contents", List.of(
-                        Map.of("parts", List.of(Map.of("text", mergedPrompt)))
+                        Map.of(
+                                "parts", List.of(
+                                        Map.of("text", prompt)
+                                )
+                        )
                 )
         );
     }
 
+    private String mergePrompt(String systemPrompt, String userPrompt) {
+        if (!StringUtils.hasText(systemPrompt)) {
+            return userPrompt;
+        }
+        return systemPrompt + "\n\n" + userPrompt;
+    }
+
     private LLMGenerationResponse extractResponse(Map<?, ?> body) {
         if (body == null) {
-            throw new IllegalStateException("Gemini returned empty response");
+            throw new RuntimeException("Gemini response parsing failed: empty payload");
         }
 
-        String text = extractText(body);
+        String text = extractGeneratedText(body);
         Integer inputTokens = null;
         Integer outputTokens = null;
         Integer totalTokens = null;
@@ -111,41 +123,37 @@ public class GeminiClient implements LLMClient {
         return new LLMGenerationResponse(text, inputTokens, outputTokens, totalTokens);
     }
 
-    private String extractText(Map<?, ?> body) {
+    private String extractGeneratedText(Map<?, ?> body) {
         Object candidatesObj = body.get("candidates");
         if (!(candidatesObj instanceof List<?> candidates) || candidates.isEmpty()) {
-            throw new IllegalStateException("Gemini response missing candidates");
+            throw new RuntimeException("Gemini response parsing failed: missing candidates");
         }
 
         Object firstCandidateObj = candidates.get(0);
         if (!(firstCandidateObj instanceof Map<?, ?> firstCandidate)) {
-            throw new IllegalStateException("Gemini candidate payload is invalid");
+            throw new RuntimeException("Gemini response parsing failed: invalid candidate format");
         }
 
         Object contentObj = firstCandidate.get("content");
         if (!(contentObj instanceof Map<?, ?> content)) {
-            throw new IllegalStateException("Gemini response missing content");
+            throw new RuntimeException("Gemini response parsing failed: missing content");
         }
 
         Object partsObj = content.get("parts");
         if (!(partsObj instanceof List<?> parts) || parts.isEmpty()) {
-            throw new IllegalStateException("Gemini response missing content.parts");
+            throw new RuntimeException("Gemini response parsing failed: missing parts");
         }
 
         Object firstPartObj = parts.get(0);
         if (!(firstPartObj instanceof Map<?, ?> firstPart)) {
-            throw new IllegalStateException("Gemini content part is invalid");
+            throw new RuntimeException("Gemini response parsing failed: invalid part format");
         }
 
         String text = Objects.toString(firstPart.get("text"), "").trim();
         if (!StringUtils.hasText(text)) {
-            throw new IllegalStateException("Gemini response text is blank");
+            throw new RuntimeException("Gemini response parsing failed: text is blank");
         }
         return text;
-    }
-
-    private long resolveTimeoutMillis(long requestTimeoutMillis) {
-        return providerTimeoutMillis > 0L ? providerTimeoutMillis : requestTimeoutMillis;
     }
 
     private Retry retrySpec(int maxAttempts) {
@@ -158,7 +166,7 @@ public class GeminiClient implements LLMClient {
         if (throwable instanceof WebClientResponseException ex) {
             return ex.getStatusCode().is5xxServerError() || ex.getStatusCode().value() == 429;
         }
-        return true;
+        return !(throwable instanceof IllegalStateException);
     }
 
     private Integer toInteger(Object value) {
@@ -171,7 +179,7 @@ public class GeminiClient implements LLMClient {
     private void validateApiKey() {
         if (!StringUtils.hasText(geminiApiKey)) {
             throw new IllegalStateException(
-                    "Gemini API key is missing. Set GEMINI_API_KEY or GOOGLE_API_KEY environment variable.");
+                    "Gemini API key is missing. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in the environment.");
         }
     }
 }

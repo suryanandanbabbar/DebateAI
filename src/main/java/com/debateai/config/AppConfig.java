@@ -66,15 +66,16 @@ public class AppConfig {
         }
 
         public record Llm(
+                @NotBlank String provider,
                 @Min(1000) @Max(30000) long timeoutMillis,
                 @Min(1) @Max(5) int maxAttempts,
                 @Valid @NotNull Providers providers,
+                @Valid @NotNull Gemini gemini,
                 @Valid @NotNull Agents agents
         ) {
             public record Providers(
                     @Valid @NotNull Provider openai,
-                    @Valid @NotNull Provider anthropic,
-                    @Valid Provider gemini
+                    @Valid @NotNull Provider anthropic
             ) {
             }
 
@@ -82,6 +83,13 @@ public class AppConfig {
                     String apiKey,
                     @NotBlank String baseUrl,
                     @NotBlank String model
+            ) {
+            }
+
+            public record Gemini(
+                    @NotBlank String model,
+                    @Min(5) @Max(120) int timeoutSeconds,
+                    @NotBlank String baseUrl
             ) {
             }
 

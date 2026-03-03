@@ -112,14 +112,17 @@ public class DebateService {
             default -> throw new IllegalArgumentException("No LLM config for viewpoint: " + viewpoint);
         };
 
-        String provider = agentConfig.provider().trim().toLowerCase(Locale.ROOT);
+        String provider = properties.llm().provider().trim().toLowerCase(Locale.ROOT);
         LLMClient client = llmClientFactory.getClient(provider);
         String model = resolveModel(provider);
+        long timeoutMillis = provider.equals("gemini")
+                ? TimeUnit.SECONDS.toMillis(properties.llm().gemini().timeoutSeconds())
+                : properties.llm().timeoutMillis();
 
         LLMExecutionConfig executionConfig = new LLMExecutionConfig(
                 model,
                 agentConfig.temperature(),
-                properties.llm().timeoutMillis(),
+                timeoutMillis,
                 properties.llm().maxAttempts()
         );
 
@@ -130,13 +133,7 @@ public class DebateService {
         return switch (provider) {
             case "openai" -> properties.llm().providers().openai().model();
             case "anthropic" -> properties.llm().providers().anthropic().model();
-            case "gemini" -> {
-                AppConfig.DebateProperties.Llm.Provider gemini = properties.llm().providers().gemini();
-                if (gemini == null || !StringUtils.hasText(gemini.model())) {
-                    throw new IllegalArgumentException("Gemini provider is selected but debate.llm.providers.gemini.model is missing");
-                }
-                yield gemini.model();
-            }
+            case "gemini" -> properties.llm().gemini().model();
             default -> throw new IllegalArgumentException("Unsupported provider for model resolution: " + provider);
         };
     }
