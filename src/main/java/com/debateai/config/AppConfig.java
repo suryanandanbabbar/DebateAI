@@ -73,7 +73,8 @@ public class AppConfig {
         ) {
             public record Providers(
                     @Valid @NotNull Provider openai,
-                    @Valid @NotNull Provider anthropic
+                    @Valid @NotNull Provider anthropic,
+                    @Valid Provider gemini
             ) {
             }
 

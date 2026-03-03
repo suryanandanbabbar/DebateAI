@@ -130,6 +130,13 @@ public class DebateService {
         return switch (provider) {
             case "openai" -> properties.llm().providers().openai().model();
             case "anthropic" -> properties.llm().providers().anthropic().model();
+            case "gemini" -> {
+                AppConfig.DebateProperties.Llm.Provider gemini = properties.llm().providers().gemini();
+                if (gemini == null || !StringUtils.hasText(gemini.model())) {
+                    throw new IllegalArgumentException("Gemini provider is selected but debate.llm.providers.gemini.model is missing");
+                }
+                yield gemini.model();
+            }
             default -> throw new IllegalArgumentException("Unsupported provider for model resolution: " + provider);
         };
     }
