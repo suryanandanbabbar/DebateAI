@@ -13,15 +13,13 @@ public class DebateResponseMapper {
 
     public DebateResponseView from(DebateResult result) {
         String topic = sanitize(result.topic(), "");
-        String optimist = sanitize(result.optimistView(), "No optimist response available.");
-        String skeptic = sanitize(result.skepticView(), "No skeptic response available.");
-        String risk = sanitize(result.riskAnalysis(), "No risk analyst response available.");
-        String decision = sanitize(result.finalDecision(), "No moderator summary available.");
+        String winner = sanitize(result.winner(), "Unknown");
+        String reasoning = sanitize(result.finalDecision(), "No moderator summary available.");
 
         return new DebateResponseView(
                 topic,
-                new DebateResponseView.Analysis(optimist, skeptic, risk),
-                decision,
+                winner,
+                reasoning,
                 clamp(round2(result.confidenceScore()))
         );
     }

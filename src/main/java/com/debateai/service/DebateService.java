@@ -16,6 +16,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -75,6 +77,17 @@ public class DebateService {
         ResolvedClientConfig moderatorConfig = resolveClientConfig("moderator");
         DebateResult result = moderatorAgent.moderate(topic, responses, moderatorConfig.client(), moderatorConfig.executionConfig());
         result = applyResultDiscipline(result);
+        String winner = parseWinnerWithRegex(result.topic(), result.finalDecision());
+        double confidence = confidenceWithDecisionStrength(result.confidenceScore(), result.finalDecision(), winner);
+        result = new DebateResult(
+                result.topic(),
+                winner,
+                result.optimistView(),
+                result.skepticView(),
+                result.riskAnalysis(),
+                result.finalDecision(),
+                confidence
+        );
         log.info("Debate completed with confidence score {}", result.confidenceScore());
         return result;
     }
@@ -231,6 +244,7 @@ public class DebateService {
     private DebateResult applyResultDiscipline(DebateResult result) {
         return new DebateResult(
                 result.topic(),
+                result.winner(),
                 enforceLengthDiscipline(result.optimistView(), "optimist"),
                 enforceLengthDiscipline(result.skepticView(), "skeptic"),
                 enforceLengthDiscipline(result.riskAnalysis(), "risk-analyst"),
@@ -277,5 +291,76 @@ public class DebateService {
             return candidate.substring(0, lastSpace).trim();
         }
         return candidate.trim();
+    }
+
+    private String parseWinnerWithRegex(String topic, String response) {
+        if (!StringUtils.hasText(topic) || !StringUtils.hasText(response)) {
+            throw new IllegalStateException("Moderator failed to decide");
+        }
+
+        List<String> options = extractOptionsFromTopic(topic);
+        if (options.size() != 2) {
+            throw new IllegalStateException("Moderator failed to decide");
+        }
+
+        int mentionCount = 0;
+        String winner = null;
+        for (String option : options) {
+            Pattern pattern = Pattern.compile("(?i)(^|\\b)" + Pattern.quote(option) + "(\\b|$)");
+            Matcher matcher = pattern.matcher(response);
+            if (matcher.find()) {
+                mentionCount++;
+                winner = option;
+            }
+        }
+
+        if (mentionCount != 1 || !StringUtils.hasText(winner)) {
+            throw new IllegalStateException("Moderator failed to decide");
+        }
+        return winner;
+    }
+
+    private List<String> extractOptionsFromTopic(String topic) {
+        String cleaned = topic.trim().replaceAll("[?!.]+$", "");
+        String lower = cleaned.toLowerCase(Locale.ROOT);
+
+        for (String delimiter : List.of(" versus ", " vs ", " or ")) {
+            int idx = lower.indexOf(delimiter);
+            if (idx > 0) {
+                String left = normalizeOption(cleaned.substring(0, idx));
+                String right = normalizeOption(cleaned.substring(idx + delimiter.length()));
+                if (StringUtils.hasText(left) && StringUtils.hasText(right) && !left.equalsIgnoreCase(right)) {
+                    return List.of(left, right);
+                }
+            }
+        }
+        return List.of();
+    }
+
+    private String normalizeOption(String raw) {
+        return raw
+                .replaceAll("(?i)^(should\\s+i\\s+use\\s+|should\\s+we\\s+use\\s+|should\\s+i\\s+|should\\s+we\\s+|choose\\s+|pick\\s+|compare\\s+|between\\s+)", "")
+                .replaceAll("(?i)^use\\s+", "")
+                .replaceAll("[\"'`]", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private double confidenceWithDecisionStrength(double baseConfidence, String response, String winner) {
+        double decisionStrength = decisionStrength(response, winner);
+        double merged = (0.75d * baseConfidence) + (0.25d * decisionStrength);
+        return Math.round(Math.max(0.0d, Math.min(1.0d, merged)) * 100.0d) / 100.0d;
+    }
+
+    private double decisionStrength(String response, String winner) {
+        if (!StringUtils.hasText(response) || !StringUtils.hasText(winner)) {
+            return 0.0d;
+        }
+        String[] sentences = response.split("(?<=[.!?])\\s+");
+        if (sentences.length == 0) {
+            return 0.5d;
+        }
+        Pattern firstSentenceWinnerPattern = Pattern.compile("(?i)(^|\\b)" + Pattern.quote(winner) + "(\\b|$)");
+        return firstSentenceWinnerPattern.matcher(sentences[0]).find() ? 1.0d : 0.8d;
     }
 }

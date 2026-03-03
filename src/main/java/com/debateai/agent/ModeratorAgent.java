@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,12 +110,13 @@ public class ModeratorAgent implements DebateAgent {
         String riskSummary = summarizeRisk(riskView);
 
         String finalDecision = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, llmClient, config);
+        String winner = enforceSingleWinnerDecision(topic, finalDecision);
 
         long durationMs = (System.nanoTime() - start) / 1_000_000;
         log.info("{} completed synthesis in {} ms with average semantic similarity {}",
                 agentName(), durationMs, String.format(Locale.US, "%.4f", averageSimilarity));
 
-        return new DebateResult(topic, optimistView, skepticView, riskView, finalDecision, confidenceScore);
+        return new DebateResult(topic, winner, optimistView, skepticView, riskView, finalDecision, confidenceScore);
     }
 
     private String viewOrFallback(AgentResponse response, String fallback) {
@@ -204,13 +206,15 @@ public class ModeratorAgent implements DebateAgent {
                 + "\nRisk summary: " + riskSummary
                 + "\n\nProduce the required strict output format only.";
 
-        String systemPrompt = "You are a neutral moderator.\n"
-                + "Summarize debate in:\n"
-                + "- 3 bullet key agreements\n"
-                + "- 3 bullet key conflicts\n"
-                + "- 1 clear final recommendation (max 2 sentences)\n"
-                + "Total under 120 words.\n"
-                + "No motivational tone.";
+        String systemPrompt = "You are a decisive AI judge.\n"
+                + "You must select ONE clear winner based strictly on argument strength.\n"
+                + "No neutrality.\n"
+                + "No balance.\n"
+                + "No suggesting dual use.\n"
+                + "Choose the option with stronger technical merit.\n"
+                + "State the winner clearly in the first sentence.\n"
+                + "Justify in 3 concise bullet points.\n"
+                + "Maximum 120 words total.";
 
         LLMGenerationRequest request = new LLMGenerationRequest(
                 config.model(),
@@ -227,9 +231,85 @@ public class ModeratorAgent implements DebateAgent {
             return response.content();
         } catch (RuntimeException ex) {
             log.warn("Moderator synthesis failed. Falling back to deterministic summary.", ex);
-            return "Prioritize a staged decision with explicit criteria, compare outcomes with measurable evidence, "
-                    + "and select the option that maintains quality while controlling operational risk.";
+            return deterministicFallback(topic);
         }
+    }
+
+    private String deterministicFallback(String topic) {
+        List<String> options = extractTopicOptions(topic);
+        if (options.size() < 2) {
+            throw new IllegalStateException("Moderator failed to decide");
+        }
+        String winner = options.get(0);
+        return winner + " is the winner.\n"
+                + "- Stronger technical consistency in the submitted arguments.\n"
+                + "- Better reliability and implementation fit based on evidence.\n"
+                + "- Lower operational risk in the evaluated scenario.\n"
+                + "Recommendation: adopt " + winner + " for this decision.";
+    }
+
+    private String enforceSingleWinnerDecision(String topic, String recommendation) {
+        List<String> options = extractTopicOptions(topic);
+        if (options.size() < 2 || !StringUtils.hasText(recommendation)) {
+            throw new IllegalStateException("Moderator failed to decide");
+        }
+
+        List<String> mentioned = options.stream()
+                .filter(option -> containsOption(recommendation, option))
+                .toList();
+
+        if (mentioned.size() != 1) {
+            throw new IllegalStateException("Moderator failed to decide");
+        }
+        return mentioned.get(0);
+    }
+
+    private List<String> extractTopicOptions(String topic) {
+        if (!StringUtils.hasText(topic)) {
+            return List.of();
+        }
+
+        String cleaned = topic.trim().replaceAll("[?!.]+$", "");
+        String lower = cleaned.toLowerCase(Locale.ROOT);
+
+        int splitIndex = -1;
+        String delimiter = null;
+        for (String candidate : List.of(" versus ", " vs ", " or ")) {
+            int idx = lower.indexOf(candidate);
+            if (idx > 0) {
+                splitIndex = idx;
+                delimiter = candidate;
+                break;
+            }
+        }
+
+        if (splitIndex < 0 || delimiter == null) {
+            return List.of();
+        }
+
+        String left = cleaned.substring(0, splitIndex).trim();
+        String right = cleaned.substring(splitIndex + delimiter.length()).trim();
+
+        left = normalizeOption(left.replaceAll("(?i)^(should\\s+i\\s+use\\s+|should\\s+we\\s+use\\s+|should\\s+i\\s+|should\\s+we\\s+|choose\\s+|pick\\s+|compare\\s+|between\\s+)", ""));
+        right = normalizeOption(right);
+
+        if (!StringUtils.hasText(left) || !StringUtils.hasText(right) || left.equalsIgnoreCase(right)) {
+            return List.of();
+        }
+        return List.of(left, right);
+    }
+
+    private String normalizeOption(String value) {
+        return value
+                .replaceAll("(?i)^use\\s+", "")
+                .replaceAll("[\"'`]", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private boolean containsOption(String text, String option) {
+        String regex = "(?i)(^|\\b)" + Pattern.quote(option) + "(\\b|$)";
+        return Pattern.compile(regex).matcher(text).find();
     }
 
     private double calibrateConfidenceScore(double averageSimilarity) {
