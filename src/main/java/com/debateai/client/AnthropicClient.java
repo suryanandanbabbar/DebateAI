@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,10 +23,17 @@ public class AnthropicClient implements LLMClient {
 
     private final WebClient webClient;
     private final AppConfig.DebateProperties.Llm.Provider provider;
+    private final String anthropicApiKey;
 
-    public AnthropicClient(WebClient.Builder webClientBuilder, AppConfig.DebateProperties properties) {
+    public AnthropicClient(WebClient.Builder webClientBuilder,
+                           AppConfig.DebateProperties properties,
+                           @Value("${ANTHROPIC_API_KEY:}") String anthropicApiKey) {
         this.provider = properties.llm().providers().anthropic();
         this.webClient = webClientBuilder.build();
+        this.anthropicApiKey = anthropicApiKey;
+        log.info("Anthropic API key present={} length={}",
+                StringUtils.hasText(this.anthropicApiKey),
+                this.anthropicApiKey == null ? 0 : this.anthropicApiKey.length());
     }
 
     @Override
@@ -35,9 +43,7 @@ public class AnthropicClient implements LLMClient {
 
     @Override
     public LLMGenerationResponse generate(LLMGenerationRequest request) {
-        if (!StringUtils.hasText(provider.apiKey())) {
-            throw new IllegalStateException("Anthropic API key is not configured");
-        }
+        validateApiKey();
 
         long start = System.nanoTime();
 
@@ -51,7 +57,7 @@ public class AnthropicClient implements LLMClient {
 
         LLMGenerationResponse response = webClient.post()
                 .uri(provider.baseUrl())
-                .headers(headers -> applyHeaders(headers, provider.apiKey()))
+                .headers(this::applyHeaders)
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Map.class)
@@ -71,11 +77,17 @@ public class AnthropicClient implements LLMClient {
         return response;
     }
 
-    private void applyHeaders(HttpHeaders headers, String apiKey) {
+    private void applyHeaders(HttpHeaders headers) {
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
-        headers.set("x-api-key", apiKey);
+        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + anthropicApiKey);
+        headers.set("x-api-key", anthropicApiKey);
         headers.set("anthropic-version", "2023-06-01");
+    }
+
+    private void validateApiKey() {
+        if (!StringUtils.hasText(anthropicApiKey)) {
+            throw new IllegalStateException("ANTHROPIC_API_KEY environment variable is not set or empty");
+        }
     }
 
     private Retry retrySpec(int maxAttempts) {

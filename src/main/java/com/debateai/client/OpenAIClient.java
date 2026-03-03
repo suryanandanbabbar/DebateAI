@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,10 +23,17 @@ public class OpenAIClient implements LLMClient {
 
     private final WebClient webClient;
     private final AppConfig.DebateProperties.Llm.Provider provider;
+    private final String openAiApiKey;
 
-    public OpenAIClient(WebClient.Builder webClientBuilder, AppConfig.DebateProperties properties) {
+    public OpenAIClient(WebClient.Builder webClientBuilder,
+                        AppConfig.DebateProperties properties,
+                        @Value("${OPENAI_API_KEY:}") String openAiApiKey) {
         this.provider = properties.llm().providers().openai();
         this.webClient = webClientBuilder.build();
+        this.openAiApiKey = openAiApiKey;
+        log.info("OpenAI API key present={} length={}",
+                StringUtils.hasText(this.openAiApiKey),
+                this.openAiApiKey == null ? 0 : this.openAiApiKey.length());
     }
 
     @Override
@@ -35,9 +43,7 @@ public class OpenAIClient implements LLMClient {
 
     @Override
     public LLMGenerationResponse generate(LLMGenerationRequest request) {
-        if (!StringUtils.hasText(provider.apiKey())) {
-            throw new IllegalStateException("OpenAI API key is not configured");
-        }
+        validateApiKey();
 
         long start = System.nanoTime();
 
@@ -52,7 +58,7 @@ public class OpenAIClient implements LLMClient {
 
         LLMGenerationResponse response = webClient.post()
                 .uri(provider.baseUrl())
-                .headers(headers -> applyCommonHeaders(headers, provider.apiKey()))
+                .headers(headers -> applyCommonHeaders(headers))
                 .bodyValue(payload)
                 .retrieve()
                 .bodyToMono(Map.class)
@@ -72,9 +78,15 @@ public class OpenAIClient implements LLMClient {
         return response;
     }
 
-    private void applyCommonHeaders(HttpHeaders headers, String apiKey) {
+    private void applyCommonHeaders(HttpHeaders headers) {
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey);
+        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey);
+    }
+
+    private void validateApiKey() {
+        if (!StringUtils.hasText(openAiApiKey)) {
+            throw new IllegalStateException("OPENAI_API_KEY environment variable is not set or empty");
+        }
     }
 
     private Retry retrySpec(int maxAttempts) {
