@@ -1,10 +1,6 @@
-com/debateai/DebateAiApplication.class
 com/debateai/dto/DebateResult.class
 com/debateai/agent/ModeratorAgent.class
-com/debateai/service/DebateService.class
-com/debateai/dto/AgentResponse.class
 com/debateai/exception/GlobalExceptionHandler.class
-com/debateai/agent/OptimistAgent.class
 com/debateai/exception/GlobalExceptionHandler$ErrorResponse.class
 com/debateai/config/AppConfig$DebateProperties$Execution.class
 com/debateai/config/AppConfig$DebateProperties$Retry.class
@@ -12,10 +8,14 @@ com/debateai/config/AppConfig$DebateProperties$Prompts.class
 com/debateai/dto/DebateRequest.class
 com/debateai/config/AppConfig$DebateProperties.class
 com/debateai/config/AppConfig.class
-com/debateai/controller/DebateController.class
 com/debateai/client/LLMClient.class
 com/debateai/agent/RiskAnalystAgent.class
 com/debateai/config/AppConfig$DebateProperties$Llm.class
-com/debateai/agent/DebateAgent.class
 com/debateai/agent/SkepticAgent.class
+com/debateai/DebateAiApplication.class
+com/debateai/service/DebateService.class
+com/debateai/dto/AgentResponse.class
+com/debateai/agent/OptimistAgent.class
+com/debateai/controller/DebateController.class
+com/debateai/agent/DebateAgent.class
 com/debateai/config/AppConfig$DebateProperties$Timeout.class
