@@ -108,11 +108,7 @@ public class ModeratorAgent implements DebateAgent {
         List<String> conflicts = detectConflicts(responses, similarityAnalysis);
         String riskSummary = summarizeRisk(riskView);
 
-        String recommendation = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, llmClient, config);
-        String finalDecision = "Key agreements: " + String.join(", ", agreements)
-                + "\nMajor conflicts: " + String.join(", ", conflicts)
-                + "\nRisk summary: " + riskSummary
-                + "\nFinal balanced recommendation: " + recommendation;
+        String finalDecision = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, llmClient, config);
 
         long durationMs = (System.nanoTime() - start) / 1_000_000;
         log.info("{} completed synthesis in {} ms with average semantic similarity {}",
@@ -206,10 +202,15 @@ public class ModeratorAgent implements DebateAgent {
                 + "\n\nAgreements: " + String.join("; ", agreements)
                 + "\nConflicts: " + String.join("; ", conflicts)
                 + "\nRisk summary: " + riskSummary
-                + "\n\nProduce a balanced recommendation in 4-6 sentences.";
+                + "\n\nProduce the required strict output format only.";
 
-        String systemPrompt = "You are the Moderator Agent in a structured AI debate. "
-                + "Synthesize multiple viewpoints into one balanced, concrete recommendation.";
+        String systemPrompt = "You are a neutral moderator.\n"
+                + "Summarize debate in:\n"
+                + "- 3 bullet key agreements\n"
+                + "- 3 bullet key conflicts\n"
+                + "- 1 clear final recommendation (max 2 sentences)\n"
+                + "Total under 120 words.\n"
+                + "No motivational tone.";
 
         LLMGenerationRequest request = new LLMGenerationRequest(
                 config.model(),
@@ -217,7 +218,8 @@ public class ModeratorAgent implements DebateAgent {
                 systemPrompt,
                 userPrompt,
                 config.timeoutMillis(),
-                config.maxAttempts()
+                config.maxAttempts(),
+                250
         );
 
         try {

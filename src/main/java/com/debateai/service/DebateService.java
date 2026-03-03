@@ -9,6 +9,7 @@ import com.debateai.config.AppConfig;
 import com.debateai.dto.AgentResponse;
 import com.debateai.dto.DebateRequest;
 import com.debateai.dto.DebateResult;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -73,6 +74,7 @@ public class DebateService {
 
         ResolvedClientConfig moderatorConfig = resolveClientConfig("moderator");
         DebateResult result = moderatorAgent.moderate(topic, responses, moderatorConfig.client(), moderatorConfig.executionConfig());
+        result = applyResultDiscipline(result);
         log.info("Debate completed with confidence score {}", result.confidenceScore());
         return result;
     }
@@ -94,7 +96,8 @@ public class DebateService {
                 log.info("Dispatching {} using provider={} model={} temperature={}",
                         agent.agentName(), active.provider(), active.executionConfig().model(),
                         String.format(Locale.US, "%.2f", active.executionConfig().temperature()));
-                return agent.generate(topic, active.client(), active.executionConfig());
+                AgentResponse response = agent.generate(topic, active.client(), active.executionConfig());
+                return applyResponseDiscipline(response);
             } catch (RuntimeException ex) {
                 if (!switchedOnce && providerSwitcher.isApiKeyMismatchError(ex)) {
                     String fallbackProvider = providerSwitcher.findAlternativeProvider(active.provider());
@@ -103,7 +106,8 @@ public class DebateService {
                                 active.provider(), fallbackProvider);
                         active = buildClientConfig(fallbackProvider, active.executionConfig().temperature());
                         switchedOnce = true;
-                        return agent.generate(topic, active.client(), active.executionConfig());
+                        AgentResponse response = agent.generate(topic, active.client(), active.executionConfig());
+                        return applyResponseDiscipline(response);
                     }
                 }
                 if (attempt >= maxAttempts) {
@@ -209,5 +213,69 @@ public class DebateService {
             LLMClient client,
             LLMExecutionConfig executionConfig
     ) {
+    }
+
+    private AgentResponse applyResponseDiscipline(AgentResponse response) {
+        String disciplined = enforceLengthDiscipline(response.content(), response.viewpoint());
+        return new AgentResponse(
+                response.agentName(),
+                response.viewpoint(),
+                disciplined,
+                response.executionTimeMs(),
+                response.successful(),
+                response.timedOut(),
+                response.errorMessage()
+        );
+    }
+
+    private DebateResult applyResultDiscipline(DebateResult result) {
+        return new DebateResult(
+                result.topic(),
+                enforceLengthDiscipline(result.optimistView(), "optimist"),
+                enforceLengthDiscipline(result.skepticView(), "skeptic"),
+                enforceLengthDiscipline(result.riskAnalysis(), "risk-analyst"),
+                enforceLengthDiscipline(result.finalDecision(), "moderator"),
+                result.confidenceScore()
+        );
+    }
+
+    private String enforceLengthDiscipline(String text, String viewpoint) {
+        if (!StringUtils.hasText(text)) {
+            return text;
+        }
+
+        int maxWords = "moderator".equalsIgnoreCase(viewpoint) ? 120 : 180;
+        String trimmedWords = limitWords(text.trim(), maxWords);
+        if (trimmedWords.length() <= 1500) {
+            return trimmedWords;
+        }
+        return truncateAtSentenceBoundary(trimmedWords, 1500);
+    }
+
+    private String limitWords(String text, int maxWords) {
+        String[] words = Arrays.stream(text.split("\\s+"))
+                .filter(StringUtils::hasText)
+                .toArray(String[]::new);
+        if (words.length <= maxWords) {
+            return text;
+        }
+        return String.join(" ", Arrays.copyOf(words, maxWords));
+    }
+
+    private String truncateAtSentenceBoundary(String text, int maxChars) {
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        String candidate = text.substring(0, maxChars);
+        int lastBoundary = Math.max(candidate.lastIndexOf('.'),
+                Math.max(candidate.lastIndexOf('!'), candidate.lastIndexOf('?')));
+        if (lastBoundary >= 0) {
+            return candidate.substring(0, lastBoundary + 1).trim();
+        }
+        int lastSpace = candidate.lastIndexOf(' ');
+        if (lastSpace > 0) {
+            return candidate.substring(0, lastSpace).trim();
+        }
+        return candidate.trim();
     }
 }

@@ -41,7 +41,7 @@ debate:
     agents:
       optimist:
         provider: openai
-        temperature: 0.8
+        temperature: 0.6
       skeptic:
         provider: anthropic
         temperature: 0.3
@@ -50,4 +50,4 @@ debate:
         temperature: 0.2
       moderator:
         provider: anthropic
-        temperature: 0.4
+        temperature: 0.2

@@ -36,7 +36,8 @@ public class RiskAnalystAgent implements DebateAgent {
                     buildSystemPrompt(),
                     "Topic: " + topic,
                     config.timeoutMillis(),
-                    config.maxAttempts()
+                    config.maxAttempts(),
+                    350
             );
             LLMGenerationResponse response = llmClient.generate(request);
             long durationMs = (System.nanoTime() - start) / 1_000_000;
@@ -50,7 +51,12 @@ public class RiskAnalystAgent implements DebateAgent {
     }
 
     private String buildSystemPrompt() {
-        return "You are a Risk Analyst Agent in a structured AI debate. "
-                + "Argue from an operational, technical, financial, and compliance risk lens.";
+        return "You are a Risk Analyst agent.\n"
+                + "Respond in a maximum of 180 words.\n"
+                + "Use bullet points only.\n"
+                + "No introductions.\n"
+                + "No metaphors.\n"
+                + "No repetition.\n"
+                + "Be direct and analytical.";
     }
 }

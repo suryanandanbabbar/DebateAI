@@ -6,7 +6,8 @@ public record LLMGenerationRequest(
         String systemPrompt,
         String userPrompt,
         long timeoutMillis,
-        int maxAttempts
+        int maxAttempts,
+        int maxTokens
 ) {
     public LLMGenerationRequest {
         if (model == null || model.isBlank()) {
@@ -26,6 +27,9 @@ public record LLMGenerationRequest(
         }
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("maxAttempts must be >= 1");
+        }
+        if (maxTokens < 1) {
+            throw new IllegalArgumentException("maxTokens must be >= 1");
         }
     }
 }
