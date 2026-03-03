@@ -31,6 +31,11 @@ public class ModeratorAgent implements DebateAgent {
     private static final String OPTIMIST_LABEL = "Optimist Agent";
     private static final String SKEPTIC_LABEL = "Skeptic Agent";
     private static final String RISK_LABEL = "Risk Analyst Agent";
+    private static final List<String> STRONG_RISK_CUES = List.of(
+            "high risk", "severe risk", "critical risk", "avoid", "not suitable", "not recommended",
+            "unacceptable", "unsafe", "security concern", "compliance risk", "regulatory risk",
+            "failure risk", "downtime risk", "unreliable", "instability", "data leakage", "lock-in risk"
+    );
 
     private final TextSimilarityService textSimilarityService;
 
@@ -92,7 +97,14 @@ public class ModeratorAgent implements DebateAgent {
         double skepticVsRisk = similarityAnalysis.similarityBetween(SKEPTIC_LABEL, RISK_LABEL);
 
         double averageSimilarity = similarityAnalysis.averageSimilarity();
-        double confidenceScore = calibrateConfidenceScore(averageSimilarity);
+
+        List<String> agreements = detectAgreements(responses);
+        List<String> conflicts = detectConflicts(responses, similarityAnalysis);
+        String riskSummary = summarizeRisk(riskView);
+
+        String finalDecision = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, llmClient, config);
+        String winner = enforceSingleWinnerDecision(topic, finalDecision);
+        ConfidenceComputation confidence = calibrateConfidenceScore(averageSimilarity, riskView, winner);
 
         log.info("Semantic similarity - Optimist vs Skeptic: {}",
                 String.format(Locale.US, "%.4f", optimistVsSkeptic));
@@ -102,21 +114,14 @@ public class ModeratorAgent implements DebateAgent {
                 String.format(Locale.US, "%.4f", skepticVsRisk));
         log.info("Semantic convergence - average similarity: {}",
                 String.format(Locale.US, "%.4f", averageSimilarity));
-        log.info("Confidence score calibrated from semantic convergence: {}",
-                String.format(Locale.US, "%.2f", confidenceScore));
-
-        List<String> agreements = detectAgreements(responses);
-        List<String> conflicts = detectConflicts(responses, similarityAnalysis);
-        String riskSummary = summarizeRisk(riskView);
-
-        String finalDecision = buildRecommendation(topic, agreements, conflicts, riskSummary, responses, llmClient, config);
-        String winner = enforceSingleWinnerDecision(topic, finalDecision);
+        log.info("Winner={} riskContradictsWinner={} confidence={}",
+                winner, confidence.riskContradictsWinner(), String.format(Locale.US, "%.2f", confidence.score()));
 
         long durationMs = (System.nanoTime() - start) / 1_000_000;
         log.info("{} completed synthesis in {} ms with average semantic similarity {}",
                 agentName(), durationMs, String.format(Locale.US, "%.4f", averageSimilarity));
 
-        return new DebateResult(topic, winner, optimistView, skepticView, riskView, finalDecision, confidenceScore);
+        return new DebateResult(topic, winner, optimistView, skepticView, riskView, finalDecision, confidence.score());
     }
 
     private String viewOrFallback(AgentResponse response, String fallback) {
@@ -206,15 +211,20 @@ public class ModeratorAgent implements DebateAgent {
                 + "\nRisk summary: " + riskSummary
                 + "\n\nProduce the required strict output format only.";
 
-        String systemPrompt = "You are a decisive AI judge.\n"
-                + "You must select ONE clear winner based strictly on argument strength.\n"
-                + "No neutrality.\n"
-                + "No balance.\n"
-                + "No suggesting dual use.\n"
-                + "Choose the option with stronger technical merit.\n"
-                + "State the winner clearly in the first sentence.\n"
-                + "Justify in 3 concise bullet points.\n"
-                + "Maximum 120 words total.";
+        String systemPrompt = "You are a decisive technical judge.\n"
+                + "You are given:\n"
+                + "1. Optimist argument\n"
+                + "2. Skeptic argument\n"
+                + "3. Risk analysis\n\n"
+                + "You must:\n"
+                + "- Evaluate strength of arguments.\n"
+                + "- Identify which option is technically superior for the specific task.\n"
+                + "- Select ONE clear winner.\n"
+                + "- State winner in first sentence.\n"
+                + "- Provide 3 concise reasoning bullets.\n"
+                + "- No hedging.\n"
+                + "- No dual recommendation.\n"
+                + "- Maximum 140 words.";
 
         LLMGenerationRequest request = new LLMGenerationRequest(
                 config.model(),
@@ -312,13 +322,33 @@ public class ModeratorAgent implements DebateAgent {
         return Pattern.compile(regex).matcher(text).find();
     }
 
-    private double calibrateConfidenceScore(double averageSimilarity) {
-        double calibrated = 0.3d + (0.7d * averageSimilarity);
-        double clamped = clamp(calibrated, 0.0d, 1.0d);
-        return Math.round(clamped * 100.0d) / 100.0d;
+    private ConfidenceComputation calibrateConfidenceScore(double averageSimilarity, String riskView, String winner) {
+        double similarityWeighted = 0.35d + (0.65d * clamp(averageSimilarity, 0.0d, 1.0d));
+        boolean riskContradictsWinner = isRiskContradictingWinner(riskView, winner);
+        double contradictionAdjustment = riskContradictsWinner ? -0.20d : 0.05d;
+        double score = Math.round(clamp(similarityWeighted + contradictionAdjustment, 0.0d, 1.0d) * 100.0d) / 100.0d;
+        return new ConfidenceComputation(score, riskContradictsWinner);
+    }
+
+    private boolean isRiskContradictingWinner(String riskView, String winner) {
+        if (!StringUtils.hasText(riskView) || !StringUtils.hasText(winner)) {
+            return false;
+        }
+        String normalizedRisk = riskView.toLowerCase(Locale.ROOT);
+        String normalizedWinner = winner.toLowerCase(Locale.ROOT);
+        if (!containsOption(normalizedRisk, normalizedWinner)) {
+            return false;
+        }
+        long cueMatches = STRONG_RISK_CUES.stream()
+                .filter(normalizedRisk::contains)
+                .count();
+        return cueMatches >= 2;
     }
 
     private double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private record ConfidenceComputation(double score, boolean riskContradictsWinner) {
     }
 }

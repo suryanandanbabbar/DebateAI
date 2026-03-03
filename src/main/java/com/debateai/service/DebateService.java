@@ -78,7 +78,6 @@ public class DebateService {
         DebateResult result = moderatorAgent.moderate(topic, responses, moderatorConfig.client(), moderatorConfig.executionConfig());
         result = applyResultDiscipline(result);
         String winner = parseWinnerWithRegex(result.topic(), result.finalDecision());
-        double confidence = confidenceWithDecisionStrength(result.confidenceScore(), result.finalDecision(), winner);
         result = new DebateResult(
                 result.topic(),
                 winner,
@@ -86,7 +85,7 @@ public class DebateService {
                 result.skepticView(),
                 result.riskAnalysis(),
                 result.finalDecision(),
-                confidence
+                clamp(round2(result.confidenceScore()))
         );
         log.info("Debate completed with confidence score {}", result.confidenceScore());
         return result;
@@ -258,7 +257,7 @@ public class DebateService {
             return text;
         }
 
-        int maxWords = "moderator".equalsIgnoreCase(viewpoint) ? 120 : 180;
+        int maxWords = "moderator".equalsIgnoreCase(viewpoint) ? 140 : 180;
         String trimmedWords = limitWords(text.trim(), maxWords);
         if (trimmedWords.length() <= 1500) {
             return trimmedWords;
@@ -346,21 +345,11 @@ public class DebateService {
                 .trim();
     }
 
-    private double confidenceWithDecisionStrength(double baseConfidence, String response, String winner) {
-        double decisionStrength = decisionStrength(response, winner);
-        double merged = (0.75d * baseConfidence) + (0.25d * decisionStrength);
-        return Math.round(Math.max(0.0d, Math.min(1.0d, merged)) * 100.0d) / 100.0d;
+    private double clamp(double value) {
+        return Math.max(0.0d, Math.min(1.0d, value));
     }
 
-    private double decisionStrength(String response, String winner) {
-        if (!StringUtils.hasText(response) || !StringUtils.hasText(winner)) {
-            return 0.0d;
-        }
-        String[] sentences = response.split("(?<=[.!?])\\s+");
-        if (sentences.length == 0) {
-            return 0.5d;
-        }
-        Pattern firstSentenceWinnerPattern = Pattern.compile("(?i)(^|\\b)" + Pattern.quote(winner) + "(\\b|$)");
-        return firstSentenceWinnerPattern.matcher(sentences[0]).find() ? 1.0d : 0.8d;
+    private double round2(double value) {
+        return Math.round(value * 100.0d) / 100.0d;
     }
 }
