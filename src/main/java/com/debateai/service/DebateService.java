@@ -16,7 +16,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,6 +72,11 @@ public class DebateService {
         List<AgentResponse> responses = futures.stream()
                 .map(CompletableFuture::join)
                 .toList();
+
+        if (allAgentsFailed(responses)) {
+            log.warn("All agents failed for topic='{}'. Debate aborted before moderation.", topic);
+            throw new IllegalStateException("All agents failed. Debate aborted.");
+        }
 
         ResolvedClientConfig moderatorConfig = resolveClientConfig("moderator");
         DebateResult result = moderatorAgent.moderate(topic, responses, moderatorConfig.client(), moderatorConfig.executionConfig());
@@ -297,52 +301,47 @@ public class DebateService {
             throw new IllegalStateException("Moderator failed to decide");
         }
 
-        List<String> options = extractOptionsFromTopic(topic);
-        if (options.size() != 2) {
+        List<String> options = OptionExtractor.extractOptions(topic);
+        log.info("DebateService extracted options for winner parsing: {}", options);
+
+        List<String> mentioned = options.stream()
+                .filter(option -> containsOption(response, option))
+                .toList();
+
+        if (mentioned.isEmpty()) {
+            log.warn("Winner parsing failed. Response does not contain any extracted option. options={}", options);
+            throw new IllegalStateException("Moderator selected invalid option");
+        }
+        if (mentioned.size() != 1) {
+            log.warn("Winner parsing failed. Response contains multiple options: {}", mentioned);
             throw new IllegalStateException("Moderator failed to decide");
         }
-
-        int mentionCount = 0;
-        String winner = null;
-        for (String option : options) {
-            Pattern pattern = Pattern.compile("(?i)(^|\\b)" + Pattern.quote(option) + "(\\b|$)");
-            Matcher matcher = pattern.matcher(response);
-            if (matcher.find()) {
-                mentionCount++;
-                winner = option;
-            }
-        }
-
-        if (mentionCount != 1 || !StringUtils.hasText(winner)) {
-            throw new IllegalStateException("Moderator failed to decide");
-        }
+        String winner = mentioned.get(0);
+        log.info("DebateService selected winner: {}", winner);
         return winner;
     }
 
-    private List<String> extractOptionsFromTopic(String topic) {
-        String cleaned = topic.trim().replaceAll("[?!.]+$", "");
-        String lower = cleaned.toLowerCase(Locale.ROOT);
-
-        for (String delimiter : List.of(" versus ", " vs ", " or ")) {
-            int idx = lower.indexOf(delimiter);
-            if (idx > 0) {
-                String left = normalizeOption(cleaned.substring(0, idx));
-                String right = normalizeOption(cleaned.substring(idx + delimiter.length()));
-                if (StringUtils.hasText(left) && StringUtils.hasText(right) && !left.equalsIgnoreCase(right)) {
-                    return List.of(left, right);
-                }
-            }
-        }
-        return List.of();
+    private boolean allAgentsFailed(List<AgentResponse> responses) {
+        return responses.stream().allMatch(this::agentFailedOrBlank);
     }
 
-    private String normalizeOption(String raw) {
-        return raw
-                .replaceAll("(?i)^(should\\s+i\\s+use\\s+|should\\s+we\\s+use\\s+|should\\s+i\\s+|should\\s+we\\s+|choose\\s+|pick\\s+|compare\\s+|between\\s+)", "")
-                .replaceAll("(?i)^use\\s+", "")
-                .replaceAll("[\"'`]", "")
-                .replaceAll("\\s+", " ")
-                .trim();
+    private boolean agentFailedOrBlank(AgentResponse response) {
+        if (response == null) {
+            return true;
+        }
+        String content = response.content();
+        if (!StringUtils.hasText(content)) {
+            return true;
+        }
+        if (!response.successful()) {
+            return true;
+        }
+        return content.toLowerCase(Locale.ROOT).contains("failed");
+    }
+
+    private boolean containsOption(String text, String option) {
+        String regex = "(?i)(^|\\b)" + Pattern.quote(option) + "(\\b|$)";
+        return Pattern.compile(regex).matcher(text).find();
     }
 
     private double clamp(double value) {

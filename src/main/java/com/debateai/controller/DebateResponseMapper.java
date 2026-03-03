@@ -26,7 +26,21 @@ public class DebateResponseMapper {
                 risk,
                 winner,
                 decisionReasoning,
-                clamp(round2(result.confidenceScore()))
+                clamp(round2(result.confidenceScore())),
+                null
+        );
+    }
+
+    public DebateResponseView fromAborted(String topic, String errorMessage) {
+        return new DebateResponseView(
+                sanitize(topic, ""),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                sanitize(errorMessage, "Debate failed due to unavailable agent outputs")
         );
     }
 

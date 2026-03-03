@@ -6,6 +6,7 @@ import com.debateai.client.LLMGenerationRequest;
 import com.debateai.client.LLMGenerationResponse;
 import com.debateai.dto.AgentResponse;
 import com.debateai.dto.DebateResult;
+import com.debateai.service.OptionExtractor;
 import com.debateai.service.TextSimilarityService;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -246,7 +247,7 @@ public class ModeratorAgent implements DebateAgent {
     }
 
     private String deterministicFallback(String topic) {
-        List<String> options = extractTopicOptions(topic);
+        List<String> options = OptionExtractor.extractOptions(topic);
         if (options.size() < 2) {
             throw new IllegalStateException("Moderator failed to decide");
         }
@@ -259,8 +260,10 @@ public class ModeratorAgent implements DebateAgent {
     }
 
     private String enforceSingleWinnerDecision(String topic, String recommendation) {
-        List<String> options = extractTopicOptions(topic);
+        List<String> options = OptionExtractor.extractOptions(topic);
+        log.info("Moderator extracted options: {}", options);
         if (options.size() < 2 || !StringUtils.hasText(recommendation)) {
+            log.warn("Winner validation failed due to missing options or recommendation");
             throw new IllegalStateException("Moderator failed to decide");
         }
 
@@ -268,53 +271,21 @@ public class ModeratorAgent implements DebateAgent {
                 .filter(option -> containsOption(recommendation, option))
                 .toList();
 
+        if (mentioned.isEmpty()) {
+            log.warn("Winner validation failed. Recommendation does not match extracted options: {}", options);
+            throw new IllegalStateException("Moderator selected invalid option");
+        }
         if (mentioned.size() != 1) {
+            log.warn("Winner validation failed. Mentioned options count={} options={}", mentioned.size(), mentioned);
             throw new IllegalStateException("Moderator failed to decide");
         }
-        return mentioned.get(0);
-    }
-
-    private List<String> extractTopicOptions(String topic) {
-        if (!StringUtils.hasText(topic)) {
-            return List.of();
+        String selectedWinner = mentioned.get(0);
+        log.info("Moderator selected winner: {}", selectedWinner);
+        if (options.stream().noneMatch(option -> option.equals(selectedWinner))) {
+            log.warn("Winner validation failed. Selected winner '{}' is not in extracted options {}", selectedWinner, options);
+            throw new IllegalStateException("Moderator selected invalid option");
         }
-
-        String cleaned = topic.trim().replaceAll("[?!.]+$", "");
-        String lower = cleaned.toLowerCase(Locale.ROOT);
-
-        int splitIndex = -1;
-        String delimiter = null;
-        for (String candidate : List.of(" versus ", " vs ", " or ")) {
-            int idx = lower.indexOf(candidate);
-            if (idx > 0) {
-                splitIndex = idx;
-                delimiter = candidate;
-                break;
-            }
-        }
-
-        if (splitIndex < 0 || delimiter == null) {
-            return List.of();
-        }
-
-        String left = cleaned.substring(0, splitIndex).trim();
-        String right = cleaned.substring(splitIndex + delimiter.length()).trim();
-
-        left = normalizeOption(left.replaceAll("(?i)^(should\\s+i\\s+use\\s+|should\\s+we\\s+use\\s+|should\\s+i\\s+|should\\s+we\\s+|choose\\s+|pick\\s+|compare\\s+|between\\s+)", ""));
-        right = normalizeOption(right);
-
-        if (!StringUtils.hasText(left) || !StringUtils.hasText(right) || left.equalsIgnoreCase(right)) {
-            return List.of();
-        }
-        return List.of(left, right);
-    }
-
-    private String normalizeOption(String value) {
-        return value
-                .replaceAll("(?i)^use\\s+", "")
-                .replaceAll("[\"'`]", "")
-                .replaceAll("\\s+", " ")
-                .trim();
+        return selectedWinner;
     }
 
     private boolean containsOption(String text, String option) {

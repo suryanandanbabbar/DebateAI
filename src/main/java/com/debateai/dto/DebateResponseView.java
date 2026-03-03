@@ -9,6 +9,7 @@ public record DebateResponseView(
         String risk,
         String winner,
         String decisionReasoning,
-        double confidence
+        Double confidence,
+        String error
 ) {
 }
