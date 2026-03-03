@@ -1,7 +1,6 @@
 package com.debateai.agent;
 
 import com.debateai.client.LLMClient;
-import com.debateai.config.AppConfig;
 import com.debateai.dto.AgentResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,11 +14,9 @@ public class RiskAnalystAgent implements DebateAgent {
     private static final String VIEWPOINT = "risk-analyst";
 
     private final LLMClient llmClient;
-    private final String personaPrompt;
 
-    public RiskAnalystAgent(LLMClient llmClient, AppConfig.DebateProperties properties) {
+    public RiskAnalystAgent(LLMClient llmClient) {
         this.llmClient = llmClient;
-        this.personaPrompt = properties.prompts().riskAnalyst();
     }
 
     @Override
@@ -36,7 +33,7 @@ public class RiskAnalystAgent implements DebateAgent {
     public AgentResponse generate(String topic) {
         long start = System.nanoTime();
         try {
-            String content = llmClient.generate(agentName(), personaPrompt, topic);
+            String content = llmClient.generate(agentName(), buildPersonaPrompt(topic), topic);
             long durationMs = (System.nanoTime() - start) / 1_000_000;
             log.info("{} completed in {} ms", agentName(), durationMs);
             return new AgentResponse(agentName(), viewpoint(), content, durationMs, true, false, null);
@@ -45,5 +42,12 @@ public class RiskAnalystAgent implements DebateAgent {
             log.warn("{} failed in {} ms", agentName(), durationMs, ex);
             throw ex;
         }
+    }
+
+    private String buildPersonaPrompt(String topic) {
+        return "You are a Risk Analyst Agent.\n"
+                + "Analyze the following topic from operational, financial, and technical risk perspectives.\n\n"
+                + "Topic:\n"
+                + topic;
     }
 }
