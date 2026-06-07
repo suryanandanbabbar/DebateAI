@@ -172,3 +172,7 @@ The system handles and reports these failure paths:
 - Persistence layer for debates, winners, and historical confidence
 - Web UI dashboard for interactive debate sessions
 - Expanded observability: metrics, traces, and structured audit logs
+
+---
+
+Open to Contributions!
