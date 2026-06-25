@@ -3,6 +3,7 @@
 
 # Build output
 /target/
+*.class
 
 # IDE
 .vscode/
