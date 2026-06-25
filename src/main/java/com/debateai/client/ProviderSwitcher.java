@@ -55,7 +55,7 @@ public class ProviderSwitcher {
 
     public String findAlternativeProvider(String currentProvider) {
         String normalizedCurrent = normalize(currentProvider);
-        List<String> providers = List.of("openai", "anthropic", "gemini");
+        List<String> providers = List.of("groq", "gemini");
 
         for (String candidate : providers) {
             if (candidate.equals(normalizedCurrent)) {
@@ -104,8 +104,7 @@ public class ProviderSwitcher {
 
     private String keyForProvider(String provider) {
         return switch (provider) {
-            case "openai" -> properties.llm().providers().openai().apiKey();
-            case "anthropic" -> properties.llm().providers().anthropic().apiKey();
+            case "groq" -> properties.llm().providers().groq().apiKey();
             case "gemini" -> geminiApiKey;
             default -> "";
         };

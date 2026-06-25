@@ -12,11 +12,8 @@ public class ProviderDetector {
         }
 
         String normalized = apiKey.trim();
-        if (normalized.startsWith("sk-ant")) {
-            return "anthropic";
-        }
-        if (normalized.startsWith("sk-")) {
-            return "openai";
+        if (normalized.startsWith("gsk_")) {
+            return "groq";
         }
         if (normalized.startsWith("AIza")) {
             return "gemini";

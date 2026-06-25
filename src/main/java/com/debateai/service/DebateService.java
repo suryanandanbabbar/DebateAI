@@ -172,8 +172,7 @@ public class DebateService {
 
     private String resolveModel(String provider) {
         return switch (provider) {
-            case "openai" -> properties.llm().providers().openai().model();
-            case "anthropic" -> properties.llm().providers().anthropic().model();
+            case "groq" -> properties.llm().providers().groq().model();
             case "gemini" -> properties.llm().gemini().model();
             default -> throw new IllegalArgumentException("Unsupported provider for model resolution: " + provider);
         };
@@ -304,21 +303,41 @@ public class DebateService {
         List<String> options = OptionExtractor.extractOptions(topic);
         log.info("DebateService extracted options for winner parsing: {}", options);
 
-        List<String> mentioned = options.stream()
-                .filter(option -> containsOption(response, option))
-                .toList();
+        if (options.size() >= 2) {
+            List<String> mentioned = options.stream()
+                    .filter(option -> containsOption(response, option))
+                    .toList();
 
-        if (mentioned.isEmpty()) {
-            log.warn("Winner parsing failed. Response does not contain any extracted option. options={}", options);
-            throw new IllegalStateException("Moderator selected invalid option");
+            if (mentioned.isEmpty()) {
+                log.warn("Winner parsing failed. Response does not contain any extracted option. options={}", options);
+                throw new IllegalStateException("Moderator selected invalid option");
+            }
+            if (mentioned.size() != 1) {
+                log.warn("Winner parsing failed. Response contains multiple options: {}", mentioned);
+                throw new IllegalStateException("Moderator failed to decide");
+            }
+            String winner = mentioned.get(0);
+            log.info("DebateService selected winner: {}", winner);
+            return winner;
         }
-        if (mentioned.size() != 1) {
-            log.warn("Winner parsing failed. Response contains multiple options: {}", mentioned);
-            throw new IllegalStateException("Moderator failed to decide");
-        }
-        String winner = mentioned.get(0);
-        log.info("DebateService selected winner: {}", winner);
+
+        // Proposition debate: extract first sentence/line of the response
+        String winner = extractFirstSentence(response);
+        log.info("DebateService selected proposition winner: {}", winner);
         return winner;
+    }
+
+    private String extractFirstSentence(String text) {
+        if (!StringUtils.hasText(text)) return text;
+        int lastBoundary = Math.max(text.indexOf('.'), Math.max(text.indexOf('!'), text.indexOf('?')));
+        if (lastBoundary >= 0) {
+            return text.substring(0, lastBoundary + 1).trim();
+        }
+        int newline = text.indexOf('\n');
+        if (newline >= 0) {
+            return text.substring(0, newline).trim();
+        }
+        return text.trim();
     }
 
     private boolean allAgentsFailed(List<AgentResponse> responses) {

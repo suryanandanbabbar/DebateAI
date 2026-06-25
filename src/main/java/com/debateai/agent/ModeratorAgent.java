@@ -248,10 +248,17 @@ public class ModeratorAgent implements DebateAgent {
 
     private String deterministicFallback(String topic) {
         List<String> options = OptionExtractor.extractOptions(topic);
-        if (options.size() < 2) {
+        if (options.isEmpty()) {
             throw new IllegalStateException("Moderator failed to decide");
         }
-        String winner = options.get(0);
+        
+        String winner;
+        if (options.size() >= 2) {
+            winner = options.get(0);
+        } else {
+            winner = "The proposition is supported";
+        }
+        
         return winner + " is the winner.\n"
                 + "- Stronger technical consistency in the submitted arguments.\n"
                 + "- Better reliability and implementation fit based on evidence.\n"
@@ -262,30 +269,46 @@ public class ModeratorAgent implements DebateAgent {
     private String enforceSingleWinnerDecision(String topic, String recommendation) {
         List<String> options = OptionExtractor.extractOptions(topic);
         log.info("Moderator extracted options: {}", options);
-        if (options.size() < 2 || !StringUtils.hasText(recommendation)) {
+        if (options.isEmpty() || !StringUtils.hasText(recommendation)) {
             log.warn("Winner validation failed due to missing options or recommendation");
             throw new IllegalStateException("Moderator failed to decide");
         }
 
-        List<String> mentioned = options.stream()
-                .filter(option -> containsOption(recommendation, option))
-                .toList();
+        if (options.size() >= 2) {
+            List<String> mentioned = options.stream()
+                    .filter(option -> containsOption(recommendation, option))
+                    .toList();
 
-        if (mentioned.isEmpty()) {
-            log.warn("Winner validation failed. Recommendation does not match extracted options: {}", options);
-            throw new IllegalStateException("Moderator selected invalid option");
+            if (mentioned.isEmpty()) {
+                log.warn("Winner validation failed. Recommendation does not match extracted options: {}", options);
+                throw new IllegalStateException("Moderator selected invalid option");
+            }
+            if (mentioned.size() != 1) {
+                log.warn("Winner validation failed. Mentioned options count={} options={}", mentioned.size(), mentioned);
+                throw new IllegalStateException("Moderator failed to decide");
+            }
+            String selectedWinner = mentioned.get(0);
+            log.info("Moderator selected winner: {}", selectedWinner);
+            return selectedWinner;
         }
-        if (mentioned.size() != 1) {
-            log.warn("Winner validation failed. Mentioned options count={} options={}", mentioned.size(), mentioned);
-            throw new IllegalStateException("Moderator failed to decide");
+
+        // Proposition debate: return the first sentence/line of the recommendation
+        String winner = extractFirstSentence(recommendation);
+        log.info("Moderator selected proposition winner: {}", winner);
+        return winner;
+    }
+
+    private String extractFirstSentence(String text) {
+        if (!StringUtils.hasText(text)) return text;
+        int lastBoundary = Math.max(text.indexOf('.'), Math.max(text.indexOf('!'), text.indexOf('?')));
+        if (lastBoundary >= 0) {
+            return text.substring(0, lastBoundary + 1).trim();
         }
-        String selectedWinner = mentioned.get(0);
-        log.info("Moderator selected winner: {}", selectedWinner);
-        if (options.stream().noneMatch(option -> option.equals(selectedWinner))) {
-            log.warn("Winner validation failed. Selected winner '{}' is not in extracted options {}", selectedWinner, options);
-            throw new IllegalStateException("Moderator selected invalid option");
+        int newline = text.indexOf('\n');
+        if (newline >= 0) {
+            return text.substring(0, newline).trim();
         }
-        return selectedWinner;
+        return text.trim();
     }
 
     private boolean containsOption(String text, String option) {

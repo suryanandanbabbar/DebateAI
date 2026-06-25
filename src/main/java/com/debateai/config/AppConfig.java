@@ -74,8 +74,7 @@ public class AppConfig {
                 @Valid @NotNull Agents agents
         ) {
             public record Providers(
-                    @Valid @NotNull Provider openai,
-                    @Valid @NotNull Provider anthropic
+                    @Valid @NotNull Provider groq
             ) {
             }
 

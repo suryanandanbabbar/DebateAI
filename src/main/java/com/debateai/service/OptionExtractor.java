@@ -23,26 +23,23 @@ public final class OptionExtractor {
 
         String cleanedTopic = topic.replace("?", " ").trim();
         long orCount = countOrTokens(cleanedTopic);
-        if (orCount != 1L) {
-            throw new IllegalArgumentException("Malformed topic: expected exactly one 'or'");
+        
+        if (orCount == 1L) {
+            String[] parts = SPLIT_PATTERN.split(cleanedTopic, 2);
+            if (parts.length == 2) {
+                String left = extractFinalSubjectTokens(parts[0]);
+                String right = extractFinalSubjectTokens(parts[1]);
+                if (StringUtils.hasText(left) && StringUtils.hasText(right) && !left.equalsIgnoreCase(right)) {
+                    return List.of(left, right);
+                }
+            }
         }
 
-        String[] parts = SPLIT_PATTERN.split(cleanedTopic, 2);
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("Malformed topic: unable to split options");
+        String singleOption = extractFinalSubjectTokens(cleanedTopic);
+        if (!StringUtils.hasText(singleOption)) {
+            singleOption = topic.trim();
         }
-
-        String left = extractFinalSubjectTokens(parts[0]);
-        String right = extractFinalSubjectTokens(parts[1]);
-
-        if (!StringUtils.hasText(left) || !StringUtils.hasText(right)) {
-            throw new IllegalArgumentException("Malformed topic: extracted options are blank");
-        }
-        if (left.equalsIgnoreCase(right)) {
-            throw new IllegalArgumentException("Malformed topic: options must be distinct");
-        }
-
-        return List.of(left, right);
+        return List.of(singleOption);
     }
 
     private static long countOrTokens(String text) {
