@@ -21,10 +21,12 @@ class OptionExtractorTest {
     void shouldExtractSingleOptionWhenNoOrIsPresent() {
         assertEquals(List.of("Should AI replace software engineers"), 
                 OptionExtractor.extractOptions("Should AI replace software engineers?"));
-        assertEquals(List.of("Is AI dangerous"), 
-                OptionExtractor.extractOptions("Is AI dangerous?"));
         assertEquals(List.of("Should governments regulate AI"), 
                 OptionExtractor.extractOptions("Should governments regulate AI?"));
+        assertEquals(List.of("Is remote work better than office work"), 
+                OptionExtractor.extractOptions("Is remote work better than office work?"));
+        assertEquals(List.of("Is nuclear power beneficial"), 
+                OptionExtractor.extractOptions("Is nuclear power beneficial?"));
         assertEquals(List.of("What are the pros and cons of universal basic income"), 
                 OptionExtractor.extractOptions("What are the pros and cons of universal basic income?"));
     }
